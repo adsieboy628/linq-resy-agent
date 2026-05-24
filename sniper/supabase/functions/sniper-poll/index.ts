@@ -2,9 +2,10 @@
 // For each active watch: poll Resy for slots across the date range,
 // match against prefs, dedupe, then auto-book or notify.
 
+import { env } from '../_shared/env.ts';
 import { listActiveWatches, markPolled, recordAlertIfNew, getCredential, markWatchBooked, markWatchMatched, recordBookOutcome, type Watch } from '../_shared/db.ts';
 import { findSlots, bookFromConfigToken, ResyAuthError } from '../_shared/resy.ts';
-import { sendMessage } from '../_shared/linq.ts';
+import { sendSMS } from '../_shared/twilio.ts';
 import { slotMatchesWatch, daysInRange } from '../_shared/match.ts';
 
 async function pollWatch(w: Watch): Promise<void> {
@@ -23,7 +24,7 @@ async function pollWatch(w: Watch): Promise<void> {
       slots = await findSlots(token, w.venue_id, day, w.party_size);
     } catch (e) {
       if (e instanceof ResyAuthError) {
-        try { await sendMessage(w.chat_id, `${w.venue_name}: ${e.message}`); } catch {}
+        try { await sendSMS(w.chat_id, `${w.venue_name}: ${e.message}`); } catch {}
         return; // stop polling this watch this tick; will retry next tick
       }
       console.error(`[poll] ${w.venue_name} ${day} error:`, e instanceof Error ? e.message : String(e));
@@ -45,7 +46,7 @@ async function pollWatch(w: Watch): Promise<void> {
           const conf = await bookFromConfigToken(token, slot.config_token, slot.date, slot.party_size);
           await recordBookOutcome(alertId, 'booked', conf.resy_token, null);
           await markWatchBooked(w.id, conf.resy_token);
-          await sendMessage(
+          await sendSMS(
             w.chat_id,
             `BOOKED ${conf.venue_name} — ${niceDate} ${niceTime}, party ${conf.party_size}\n${conf.venue_url}`
           );
@@ -55,13 +56,13 @@ async function pollWatch(w: Watch): Promise<void> {
           console.error(`[poll] book failed for ${w.venue_name} ${niceDate} ${niceTime}:`, reason);
           await recordBookOutcome(alertId, 'book_failed', null, reason);
           // Fall through: still notify the user so they can grab it manually
-          await sendMessage(
+          await sendSMS(
             w.chat_id,
             `slot found but auto-book failed for ${w.venue_name} — ${niceDate} ${niceTime}\nreason: ${reason}\ntap to book manually: ${venueUrl}`
           );
         }
       } else {
-        await sendMessage(
+        await sendSMS(
           w.chat_id,
           `${w.venue_name} — ${niceDate} ${niceTime}, party ${slot.party_size}\ntap to book: ${venueUrl}`
         );
@@ -80,9 +81,15 @@ async function pollWatch(w: Watch): Promise<void> {
   }
 }
 
-Deno.serve(async (_req) => {
-  // pg_cron passes the service-role bearer. Supabase Edge Functions runtime
-  // will verify it when verify_jwt is true. No extra check needed here.
+Deno.serve(async (req) => {
+  // Shared secret — accepts either x-sniper-secret header (from pg_cron via pg_net)
+  // or ?secret=... query param (for manual testing).
+  const url = new URL(req.url);
+  const secret = req.headers.get('x-sniper-secret') || url.searchParams.get('secret');
+  if (secret !== env.webhookSecret) {
+    return new Response('Forbidden', { status: 403 });
+  }
+
   const watches = await listActiveWatches();
   console.log(`[poll] tick — ${watches.length} active watches`);
 
