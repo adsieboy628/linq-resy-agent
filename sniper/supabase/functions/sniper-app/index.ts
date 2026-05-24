@@ -171,26 +171,21 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Routes: /functions/v1/sniper-app/api/<subpath>
-  const parts = url.pathname.split('/').filter(Boolean);
-  const sub = parts.slice(3);
-
-  if (sub.length === 0) {
-    // Root URL — pointer to the static UI
-    return json({
-      ok: true,
-      message: 'sniper API. UI is at https://cdn.jsdelivr.net/gh/adsieboy628/linq-resy-agent@claude/sniper-v1/sniper/web/index.html#key=YOUR_KEY',
-    });
-  }
-
-  if (sub[0] === 'api' && sub.length === 2) {
+  // Path inside the function may or may not include the /functions/v1/sniper-app prefix
+  // depending on the runtime. Extract what's after /api/ as the action.
+  const apiMatch = url.pathname.match(/\/api\/([^/?]+)/);
+  if (apiMatch) {
     try {
-      return await handleApi(sub[1]!, req);
+      return await handleApi(apiMatch[1]!, req);
     } catch (e) {
       console.error('[sniper-app] handler error', e);
       return json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
   }
 
-  return json({ error: 'not found' }, 404);
+  // No /api/ in path — return UI pointer
+  return json({
+    ok: true,
+    message: 'sniper API. UI is at https://raw.githack.com/adsieboy628/linq-resy-agent/claude/sniper-v1/sniper/web/index.html#key=YOUR_KEY',
+  });
 });
