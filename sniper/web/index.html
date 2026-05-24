@@ -51,19 +51,17 @@
 
 <div id="connect-section" hidden>
   <h2>connect resy</h2>
-  <div id="connect-step-phone" class="stack">
-    <input id="phone-input" type="tel" placeholder="+15551234567" autocomplete="off">
-    <button id="connect-btn">send code</button>
-    <div class="muted small">resy will text you a 6-digit code. paste it next.</div>
+  <div class="stack">
+    <input id="login-email" type="email" placeholder="resy email" autocomplete="username">
+    <input id="login-password" type="password" placeholder="resy password" autocomplete="current-password">
+    <button id="login-btn">log in</button>
+    <div class="muted small">same email + password you use on resy.com. credentials are sent only to resy (via the sniper api). only the resulting auth token is stored, encrypted.</div>
+    <div class="muted small" style="margin-top:8px;"><a href="#" id="show-advanced">advanced: paste auth token instead</a></div>
   </div>
-  <div id="connect-step-code" class="stack" hidden>
-    <input id="code-input" type="text" inputmode="numeric" placeholder="6-digit code" autocomplete="one-time-code">
-    <button id="code-btn">verify</button>
-  </div>
-  <div id="connect-step-email" class="stack" hidden>
-    <input id="email-input" type="email" placeholder="you@example.com" autocomplete="email">
-    <button id="email-btn">confirm</button>
-    <div class="muted small">resy is asking for the email on your account.</div>
+  <div id="advanced-section" hidden class="stack" style="margin-top:12px;">
+    <input id="token-input" type="text" placeholder="paste x-resy-auth-token">
+    <button id="token-btn" class="secondary">use this token</button>
+    <div class="muted small">log into resy.com on a laptop, open devtools → network tab → click any api.resy.com request → copy the <code>x-resy-auth-token</code> header value.</div>
   </div>
 </div>
 
@@ -135,12 +133,6 @@ async function refresh() {
       headerEl.textContent = 'not connected to resy.';
       show('connect-section', true);
       show('main-section', false);
-      if (s.pendingOtp) {
-        document.getElementById('phone-input').value = s.pendingOtp.phone;
-        show('connect-step-phone', false);
-        if (s.pendingOtp.needsEmail) { show('connect-step-code', false); show('connect-step-email', true); }
-        else show('connect-step-code', true);
-      }
     } else {
       headerEl.textContent = 'connected as ' + s.connectedPhone + ' since ' + fmt(s.connectedAt);
       show('connect-section', false);
@@ -222,25 +214,30 @@ document.getElementById('key-input').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') document.getElementById('key-btn').click();
 });
 
-document.getElementById('connect-btn').addEventListener('click', async function() {
-  const phone = document.getElementById('phone-input').value.trim();
-  try { await api('connect', { phone }); toast('code sent — check resy SMS'); refresh(); }
+document.getElementById('login-btn').addEventListener('click', async function() {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  if (!email || !password) { toast('email and password required', true); return; }
+  const btn = document.getElementById('login-btn');
+  btn.disabled = true; btn.textContent = 'logging in…';
+  try { await api('password', { email, password }); toast('connected'); refresh(); }
   catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = 'log in'; }
 });
 
-document.getElementById('code-btn').addEventListener('click', async function() {
-  const code = document.getElementById('code-input').value.trim();
-  try {
-    const r = await api('code', { code });
-    if (r.needsEmail) { show('connect-step-code', false); show('connect-step-email', true); toast('one more step — enter your email'); }
-    else { toast('connected'); refresh(); }
-  } catch (e) { toast(e.message, true); }
+document.getElementById('show-advanced').addEventListener('click', function(e) {
+  e.preventDefault();
+  show('advanced-section', true);
 });
 
-document.getElementById('email-btn').addEventListener('click', async function() {
-  const email = document.getElementById('email-input').value.trim();
-  try { await api('email', { email }); toast('connected'); refresh(); }
+document.getElementById('token-btn').addEventListener('click', async function() {
+  const token = document.getElementById('token-input').value.trim();
+  if (!token) { toast('paste a token first', true); return; }
+  const btn = document.getElementById('token-btn');
+  btn.disabled = true; btn.textContent = 'verifying…';
+  try { const r = await api('token', { token }); toast('connected as ' + (r.as || 'you')); refresh(); }
   catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = 'use this token'; }
 });
 
 document.getElementById('watch-btn').addEventListener('click', async function() {

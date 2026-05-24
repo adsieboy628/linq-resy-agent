@@ -116,6 +116,66 @@ async function handleApi(path: string, req: Request): Promise<Response> {
     return json({ ok: true });
   }
 
+  if (path === 'password' && req.method === 'POST') {
+    // Login with Resy email + password — no SMS required.
+    const { email, password } = await req.json() as { email?: string; password?: string };
+    if (!email || !password) return json({ error: 'email and password required' }, 400);
+    const res = await fetch('https://api.resy.com/3/auth/password', {
+      method: 'POST',
+      headers: {
+        'authorization': `ResyAPI api_key="${env.resyApiKey}"`,
+        'content-type': 'application/x-www-form-urlencoded',
+        'origin': 'https://resy.com',
+        'referer': 'https://resy.com/',
+        'accept': 'application/json, text/plain, */*',
+        'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      },
+      body: new URLSearchParams({ email, password }).toString(),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      return json({ error: `resy login failed (${res.status}): ${body.slice(0, 200)}` }, 401);
+    }
+    // deno-lint-ignore no-explicit-any
+    const data = await res.json() as Record<string, any>;
+    const token = data.token || data.auth_token || data.access_token;
+    if (!token) return json({ error: 'resy returned no token. response: ' + JSON.stringify(data).slice(0, 200) }, 500);
+    await setCredential(WEB_CHAT_ID, token, data.mobile_number || data.em_address || email);
+    return json({ ok: true, message: 'connected via password' });
+  }
+
+  if (path === 'cancel' && req.method === 'POST') {
+    const { id } = await req.json() as { id?: string };
+    if (!id) return json({ error: 'id required' }, 400);
+    await cancelWatch(id);
+    return json({ ok: true });
+  }
+
+  if (path === 'token' && req.method === 'POST') {
+    // Fallback: paste an existing Resy auth token directly (advanced).
+    const { token, label } = await req.json() as { token?: string; label?: string };
+    if (!token || token.length < 20) return json({ error: 'token required (paste the x-resy-auth-token value from resy.com)' }, 400);
+    // Verify it works by hitting /2/user
+    const probeRes = await fetch('https://api.resy.com/2/user', {
+      method: 'GET',
+      headers: {
+        'authorization': `ResyAPI api_key="${env.resyApiKey}"`,
+        'x-resy-auth-token': token,
+        'x-resy-universal-auth': token,
+        'accept': 'application/json, text/plain, */*',
+        'user-agent': 'Mozilla/5.0',
+      },
+    });
+    if (!probeRes.ok) {
+      const body = await probeRes.text();
+      return json({ error: `token rejected by resy (${probeRes.status}): ${body.slice(0, 200)}` }, 401);
+    }
+    // deno-lint-ignore no-explicit-any
+    const user = await probeRes.json() as Record<string, any>;
+    await setCredential(WEB_CHAT_ID, token, user.mobile_number || user.em_address || label || 'pasted');
+    return json({ ok: true, message: 'connected via pasted token', as: user.em_address || user.first_name || 'user' });
+  }
+
   if (path === 'watch' && req.method === 'POST') {
     const { text } = await req.json() as { text?: string };
     if (!text?.trim()) return json({ error: 'text required' }, 400);
@@ -144,13 +204,6 @@ async function handleApi(path: string, req: Request): Promise<Response> {
       } catch (e) { failed.push(`${w.venue_name}: ${e instanceof Error ? e.message : String(e)}`); }
     }
     return json({ ok: true, created, failed });
-  }
-
-  if (path === 'cancel' && req.method === 'POST') {
-    const { id } = await req.json() as { id?: string };
-    if (!id) return json({ error: 'id required' }, 400);
-    await cancelWatch(id);
-    return json({ ok: true });
   }
 
   if (path === '_setup-ui' && req.method === 'POST') {
