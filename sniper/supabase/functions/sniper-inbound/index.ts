@@ -23,10 +23,16 @@ const HELP = `commands:
 /cancel N — cancel watch N from /list
 /signout — disconnect resy
 
-or just text what you want:
-"watch I Sodi Saturday June 14 6-9:30 for 3"
+or just text what you want. one watch:
+  "watch I Sodi Sat Jun 14 6-9:30 for 3"
 
-auto-books by default. add "no book" or "just ping" to opt out per request.`;
+bulk (one text, many watches):
+  "for nyc trip Jun 14-17, party of 3:
+   I Sodi Sat 6-9
+   Lilia Fri 7-9
+   Don Angie Sun any time"
+
+auto-books by default. add "no book" or "just ping" anywhere to opt out.`;
 
 async function handleMessage(from: string, text: string): Promise<void> {
   // chat_id = from phone (one row per number for SMS)
@@ -156,44 +162,66 @@ async function handleMessage(from: string, text: string): Promise<void> {
     return;
   }
 
-  // Natural-language watch request
+  // Natural-language watch request — may be one OR many in a single message
   const todayIso = new Date().toISOString().slice(0, 10);
   const parsed = await parseRequest(text, todayIso);
-  if ('error' in parsed) {
+  if (!Array.isArray(parsed)) {
     await sendSMS(from, `couldn't parse: ${parsed.error}\n\ntry: "watch I Sodi Sat Jun 14 6-9:30 for 3"`);
     return;
   }
 
-  let venues;
-  try {
-    venues = await searchVenues(token, parsed.venue_name);
-  } catch (e) {
-    await sendSMS(from, `resy error: ${e instanceof Error ? e.message : String(e)}`);
-    return;
-  }
-  if (!venues.length) {
-    await sendSMS(from, `couldn't find "${parsed.venue_name}" on resy. try the exact name.`);
-    return;
-  }
-  const venue = venues[0]!;
+  const created: string[] = [];
+  const failed: string[] = [];
 
-  await createWatch({
-    chat_id: chatId,
-    raw_request: text,
-    venue_name: venue.name,
-    venue_id: venue.venue_id,
-    venue_url: venue.url,
-    date_start: parsed.date_start,
-    date_end: parsed.date_end,
-    party_size: parsed.party_size,
-    time_start: parsed.time_start,
-    time_end: parsed.time_end,
-    auto_book: parsed.auto_book,
-  });
+  for (const w of parsed) {
+    let venues;
+    try {
+      venues = await searchVenues(token, w.venue_name);
+    } catch (e) {
+      failed.push(`${w.venue_name}: ${e instanceof Error ? e.message : String(e)}`);
+      continue;
+    }
+    if (!venues.length) {
+      failed.push(`${w.venue_name}: not found on resy`);
+      continue;
+    }
+    const venue = venues[0]!;
+    try {
+      await createWatch({
+        chat_id: chatId,
+        raw_request: text,
+        venue_name: venue.name,
+        venue_id: venue.venue_id,
+        venue_url: venue.url,
+        date_start: w.date_start,
+        date_end: w.date_end,
+        party_size: w.party_size,
+        time_start: w.time_start,
+        time_end: w.time_end,
+        auto_book: w.auto_book,
+      });
+      const dr = w.date_start === w.date_end ? w.date_start : `${w.date_start}…${w.date_end}`;
+      const mode = w.auto_book ? 'auto-book' : 'ping only';
+      created.push(`${venue.name} — ${dr}, ${w.time_start}-${w.time_end}, party ${w.party_size} (${mode})`);
+    } catch (e) {
+      failed.push(`${w.venue_name}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
 
-  const dr = parsed.date_start === parsed.date_end ? parsed.date_start : `${parsed.date_start}…${parsed.date_end}`;
-  const mode = parsed.auto_book ? "will auto-book when found" : "ping only, won't book";
-  await sendSMS(from, `watching ${venue.name} — ${dr}, ${parsed.time_start}-${parsed.time_end}, party ${parsed.party_size}. ${mode}.`);
+  const lines: string[] = [];
+  if (created.length === 1) {
+    lines.push(`watching ${created[0]!}.`);
+  } else if (created.length > 1) {
+    lines.push(`watching ${created.length}:`);
+    lines.push(...created.map(c => `• ${c}`));
+  }
+  if (failed.length) {
+    if (lines.length) lines.push('');
+    lines.push(`couldn't add ${failed.length}:`);
+    lines.push(...failed.map(f => `• ${f}`));
+  }
+  if (!lines.length) lines.push("nothing to watch — try again with a venue name + date.");
+  await sendSMS(from, lines.join('\n'));
 }
 
 Deno.serve(async (req) => {

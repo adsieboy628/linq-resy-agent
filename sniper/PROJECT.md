@@ -21,8 +21,11 @@ Source-of-truth for every external resource the Resy sniper depends on. Keep upd
 
 | Name | Version | URL | Auth |
 |---|---|---|---|
-| `sniper-inbound` | v2 | `https://eskqbzoisyrvybxyjmln.supabase.co/functions/v1/sniper-inbound?secret=<SNIPER_WEBHOOK_SECRET>` | `?secret=` query param (Twilio webhooks don't support custom headers) |
+| `sniper-inbound` | v3 | `https://eskqbzoisyrvybxyjmln.supabase.co/functions/v1/sniper-inbound?secret=<SNIPER_WEBHOOK_SECRET>` | `?secret=` query param (Twilio webhooks don't support custom headers) |
 | `sniper-poll` | v3 | `https://eskqbzoisyrvybxyjmln.supabase.co/functions/v1/sniper-poll` | `x-sniper-secret` header (from pg_cron) |
+| `sniper-health` | v1 | `https://eskqbzoisyrvybxyjmln.supabase.co/functions/v1/sniper-health` | none — public health check |
+
+**Verification:** Once secrets are pasted, `curl` the health URL. If it returns `"ok": true`, you're good to text the bot. If anything's missing or malformed, it tells you exactly which var.
 
 ### Schema (applied)
 
@@ -112,15 +115,24 @@ sniper/
 
 - [x] Created Supabase project (`eskqbzoisyrvybxyjmln`, us-east-1, Pro plan)
 - [x] Applied schema migration (6 sniper_* tables + pg_cron + pg_net)
-- [x] Deployed `sniper-inbound` Edge Function — v2 (Twilio)
+- [x] Deployed `sniper-inbound` Edge Function — v3 (Twilio + bulk-watch parser)
 - [x] Deployed `sniper-poll` Edge Function — v3 (Twilio + shared-secret auth)
-- [x] Scheduled pg_cron `sniper-poll-tick` — active
+- [x] Deployed `sniper-health` Edge Function — v1 (env var verifier, public)
+- [x] Scheduled pg_cron `sniper-poll-tick` — active, firing every minute
+- [x] Verified cron fires (currently 500s on poll because env vars not set yet — clears the moment you paste them)
 
-## What you still do (~15 min, iPhone-only)
+## What you still do (laptop required for Twilio compliance step)
 
-- [ ] Sign up at twilio.com → buy a US local number → grab `Account SID` + `Auth Token`
+- [ ] Finish Twilio setup on laptop — sign up, complete compliance profile (US A2P registration form), buy a US local number, grab `Account SID` + `Auth Token`
 - [ ] Paste the 7 env vars above into the Supabase Edge Functions Secrets dashboard
+- [ ] **Curl the health URL** → `https://eskqbzoisyrvybxyjmln.supabase.co/functions/v1/sniper-health`. If it returns `"ok": true`, all secrets are correct. If not, the response tells you exactly which var to fix.
 - [ ] Configure your Twilio number's inbound webhook (URL with `?secret=` above)
 - [ ] Text the bot's Twilio number from your iPhone: `/connect +<your_BACKUP_resy_phone>`
 - [ ] Reply with `/code 123456` when Resy texts the code
-- [ ] Start sniping: `watch I Sodi Sat Jun 14 6-9:30 for 3`
+- [ ] Start sniping. One watch OR your whole NYC list in one text:
+  ```
+  for nyc trip jun 14-17, party of 3:
+  I Sodi sat 6-9
+  Lilia fri 7-9
+  Don Angie sun any time
+  ```
