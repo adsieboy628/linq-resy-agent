@@ -19,11 +19,12 @@ Source-of-truth for every external resource the Resy sniper depends on. Keep upd
 
 ### Edge Functions (deployed)
 
-| Name | Version | URL | Auth |
-|---|---|---|---|
-| `sniper-inbound` | v3 | `https://eskqbzoisyrvybxyjmln.supabase.co/functions/v1/sniper-inbound?secret=<SNIPER_WEBHOOK_SECRET>` | `?secret=` query param (Twilio webhooks don't support custom headers) |
-| `sniper-poll` | v3 | `https://eskqbzoisyrvybxyjmln.supabase.co/functions/v1/sniper-poll` | `x-sniper-secret` header (from pg_cron) |
-| `sniper-health` | v1 | `https://eskqbzoisyrvybxyjmln.supabase.co/functions/v1/sniper-health` | none — public health check |
+| Name | Version | URL | Auth | Status |
+|---|---|---|---|---|
+| **`sniper-app`** ★ | v1 | `https://eskqbzoisyrvybxyjmln.supabase.co/functions/v1/sniper-app?key=<SNIPER_WEBHOOK_SECRET>` | `?key=` query param | **THIS is the user-facing web app. Bookmark on iPhone home screen.** |
+| `sniper-poll` | v4 | `https://eskqbzoisyrvybxyjmln.supabase.co/functions/v1/sniper-poll` | `x-sniper-secret` header (from pg_cron) | Notifications best-effort; web watches skip SMS |
+| `sniper-health` | v1 | `https://eskqbzoisyrvybxyjmln.supabase.co/functions/v1/sniper-health` | none | Env-var verifier |
+| `sniper-inbound` | v3 | `https://eskqbzoisyrvybxyjmln.supabase.co/functions/v1/sniper-inbound?secret=<SNIPER_WEBHOOK_SECRET>` | `?secret=` | Twilio webhook receiver — unused unless Twilio set up later |
 
 **Verification:** Once secrets are pasted, `curl` the health URL. If it returns `"ok": true`, you're good to text the bot. If anything's missing or malformed, it tells you exactly which var.
 
@@ -121,18 +122,23 @@ sniper/
 - [x] Scheduled pg_cron `sniper-poll-tick` — active, firing every minute
 - [x] Verified cron fires (currently 500s on poll because env vars not set yet — clears the moment you paste them)
 
-## What you still do (laptop required for Twilio compliance step)
+## What you still do — web app path, no Twilio needed
 
-- [ ] Finish Twilio setup on laptop — sign up, complete compliance profile (US A2P registration form), buy a US local number, grab `Account SID` + `Auth Token`
-- [ ] Paste the 7 env vars above into the Supabase Edge Functions Secrets dashboard
-- [ ] **Curl the health URL** → `https://eskqbzoisyrvybxyjmln.supabase.co/functions/v1/sniper-health`. If it returns `"ok": true`, all secrets are correct. If not, the response tells you exactly which var to fix.
-- [ ] Configure your Twilio number's inbound webhook (URL with `?secret=` above)
-- [ ] Text the bot's Twilio number from your iPhone: `/connect +<your_BACKUP_resy_phone>`
-- [ ] Reply with `/code 123456` when Resy texts the code
-- [ ] Start sniping. One watch OR your whole NYC list in one text:
-  ```
-  for nyc trip jun 14-17, party of 3:
-  I Sodi sat 6-9
-  Lilia fri 7-9
-  Don Angie sun any time
-  ```
+**Total: ~3 min. Phone OR laptop. No new accounts.**
+
+1. **Set 3 secrets in Supabase** → https://supabase.com/dashboard/project/eskqbzoisyrvybxyjmln/settings/functions
+   - `ANTHROPIC_API_KEY` = reuse your curaite key
+   - `SNIPER_ENCRYPTION_KEY` = `28f32f62cbeaffe183021f9d11f4611423bd7a29b339b7ca190826c0aad0990e`
+   - `SNIPER_WEBHOOK_SECRET` = `5e5a01f9dc59e641642bf9cf0e45f459ab0436f78e3adda60aa3b2bd3299dc04`
+
+2. **Verify** — visit https://eskqbzoisyrvybxyjmln.supabase.co/functions/v1/sniper-health → should return `"ok": true`
+
+3. **Bookmark the app URL on your home screen:**
+   ```
+   https://eskqbzoisyrvybxyjmln.supabase.co/functions/v1/sniper-app?key=5e5a01f9dc59e641642bf9cf0e45f459ab0436f78e3adda60aa3b2bd3299dc04
+   ```
+   Safari → Share → "Add to Home Screen" → icon appears like a native app.
+
+4. **Use it.** Tap the icon → tap "send code" with your Resy phone → Resy texts YOU → type the code in → connected. Then type your watches into the text box. Bot does the rest.
+
+Auto-book is on by default. The page polls every 30 sec and shows everything in the activity feed. Same URL works on laptop Safari, phone Safari, anywhere.
