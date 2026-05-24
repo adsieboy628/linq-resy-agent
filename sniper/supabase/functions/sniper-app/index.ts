@@ -36,6 +36,21 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
+function errMsg(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'object' && e !== null) {
+    const o = e as Record<string, unknown>;
+    const parts: string[] = [];
+    if (typeof o.message === 'string') parts.push(o.message);
+    if (typeof o.code === 'string') parts.push(`[${o.code}]`);
+    if (typeof o.hint === 'string') parts.push(`hint: ${o.hint}`);
+    if (typeof o.details === 'string') parts.push(o.details);
+    if (parts.length) return parts.join(' ');
+    return JSON.stringify(o).slice(0, 300);
+  }
+  return String(e);
+}
+
 async function getState() {
   const cred = await db.from('sniper_credentials').select('phone, connected_at').eq('chat_id', WEB_CHAT_ID).maybeSingle();
   const pending = await db.from('sniper_pending_otp').select('phone, claim_token, required_fields').eq('chat_id', WEB_CHAT_ID).maybeSingle();
@@ -189,7 +204,7 @@ async function handleApi(path: string, req: Request): Promise<Response> {
     for (const w of parsed) {
       let venues;
       try { venues = await searchVenues(token, w.venue_name); }
-      catch (e) { failed.push(`${w.venue_name}: ${e instanceof Error ? e.message : String(e)}`); continue; }
+      catch (e) { console.error('[watch] searchVenues threw', e); failed.push(`${w.venue_name}: ${errMsg(e)}`); continue; }
       if (!venues.length) { failed.push(`${w.venue_name}: not found on resy`); continue; }
       const venue = venues[0]!;
       try {
@@ -201,7 +216,7 @@ async function handleApi(path: string, req: Request): Promise<Response> {
         });
         const dr = w.date_start === w.date_end ? w.date_start : `${w.date_start}…${w.date_end}`;
         created.push(`${venue.name} — ${dr}, ${w.time_start}-${w.time_end}, party ${w.party_size}${w.auto_book ? '' : ' (ping only)'}`);
-      } catch (e) { failed.push(`${w.venue_name}: ${e instanceof Error ? e.message : String(e)}`); }
+      } catch (e) { console.error('[watch] createWatch threw for', w, '→', e); failed.push(`${w.venue_name}: ${errMsg(e)}`); }
     }
     return json({ ok: true, created, failed });
   }
