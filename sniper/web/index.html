@@ -93,13 +93,15 @@
 <script>
 const API_BASE = 'https://eskqbzoisyrvybxyjmln.supabase.co/functions/v1/sniper-app/api';
 
-// Key lives in URL hash (never sent to jsdelivr), or in localStorage after first paste.
+// Key embedded so opening the file = ready to use. (URL-hash override still works.)
+const EMBEDDED_KEY = '5e5a01f9dc59e641642bf9cf0e45f459ab0436f78e3adda60aa3b2bd3299dc04';
+
 function readKeyFromHash() {
   const h = location.hash.startsWith('#') ? location.hash.slice(1) : '';
   const params = new URLSearchParams(h);
   return params.get('key') || '';
 }
-let KEY = readKeyFromHash() || localStorage.getItem('sniperKey') || '';
+let KEY = readKeyFromHash() || localStorage.getItem('sniperKey') || EMBEDDED_KEY;
 if (KEY) localStorage.setItem('sniperKey', KEY);
 
 const toastEl = document.getElementById('toast');
