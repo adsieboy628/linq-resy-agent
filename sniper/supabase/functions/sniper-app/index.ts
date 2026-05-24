@@ -153,6 +153,30 @@ async function handleApi(path: string, req: Request): Promise<Response> {
     return json({ ok: true });
   }
 
+  if (path === '_setup-ui' && req.method === 'POST') {
+    // Pull the latest HTML from GitHub raw and upload to Supabase Storage.
+    // Storage serves with proper text/html and no CSP injection.
+    const sourceUrl = 'https://raw.githubusercontent.com/adsieboy628/linq-resy-agent/claude/sniper-v1/sniper/web/index.html';
+    const htmlRes = await fetch(sourceUrl);
+    if (!htmlRes.ok) return json({ error: `fetch HTML from github failed: ${htmlRes.status}` }, 500);
+    const html = await htmlRes.text();
+
+    const { data, error } = await db.storage.from('sniper-ui').upload('index.html', new Blob([html], { type: 'text/html' }), {
+      upsert: true,
+      contentType: 'text/html',
+      cacheControl: '60',
+    });
+    if (error) {
+      return json({ error: `storage upload failed: ${error.message}`, raw: JSON.stringify(error) }, 500);
+    }
+    return json({
+      ok: true,
+      path: data?.path,
+      url: `${env.supabaseUrl}/storage/v1/object/public/sniper-ui/index.html`,
+      source_bytes: html.length,
+    });
+  }
+
   return json({ error: 'not found' }, 404);
 }
 
