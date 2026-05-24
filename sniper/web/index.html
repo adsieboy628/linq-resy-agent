@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Sniper">
+<title>resy sniper</title>
+<style>
+  :root { color-scheme: light dark; --bg: #fff; --fg: #111; --muted: #666; --line: #e5e5e5; --accent: #d62828; --ok: #1a7f1a; --card: #fafafa; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0b0b0b; --fg: #f0f0f0; --muted: #888; --line: #222; --card: #1a1a1a; } }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; margin: 0; padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom); max-width: 640px; margin-inline: auto; background: var(--bg); color: var(--fg); }
+  h1 { font-size: 22px; margin: 16px 0 4px; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 24px 0 8px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  textarea, input { width: 100%; font: inherit; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--fg); }
+  textarea { min-height: 88px; resize: vertical; }
+  button { font: inherit; padding: 12px 16px; border: 0; border-radius: 10px; background: var(--accent); color: white; font-weight: 600; cursor: pointer; }
+  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  button.tiny { padding: 6px 10px; font-size: 13px; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .stack { display: flex; flex-direction: column; gap: 12px; }
+  .toast { position: fixed; left: 16px; right: 16px; bottom: 16px; background: var(--fg); color: var(--bg); padding: 12px 14px; border-radius: 10px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 608px; margin-inline: auto; }
+  .toast.show { opacity: 1; }
+  .toast.error { background: var(--accent); color: white; }
+  .pill { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: var(--line); color: var(--muted); }
+  .pill.ok { background: var(--ok); color: white; }
+  .pill.book { background: var(--accent); color: white; }
+  ul { list-style: none; padding: 0; margin: 0; }
+  li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  li:last-child { border-bottom: 0; }
+  a { color: var(--accent); }
+  .small { font-size: 13px; }
+  .right { margin-left: auto; }
+</style>
+</head>
+<body>
+<h1>resy sniper</h1>
+<div class="muted small" id="header-status">loading…</div>
+
+<div id="key-prompt" hidden>
+  <h2>access key</h2>
+  <div class="stack">
+    <input id="key-input" type="password" placeholder="paste your sniper key">
+    <button id="key-btn">unlock</button>
+    <div class="muted small">the key is in the original URL after <code>#key=</code>. paste it and we'll remember it.</div>
+  </div>
+</div>
+
+<div id="connect-section" hidden>
+  <h2>connect resy</h2>
+  <div id="connect-step-phone" class="stack">
+    <input id="phone-input" type="tel" placeholder="+15551234567" autocomplete="off">
+    <button id="connect-btn">send code</button>
+    <div class="muted small">resy will text you a 6-digit code. paste it next.</div>
+  </div>
+  <div id="connect-step-code" class="stack" hidden>
+    <input id="code-input" type="text" inputmode="numeric" placeholder="6-digit code" autocomplete="one-time-code">
+    <button id="code-btn">verify</button>
+  </div>
+  <div id="connect-step-email" class="stack" hidden>
+    <input id="email-input" type="email" placeholder="you@example.com" autocomplete="email">
+    <button id="email-btn">confirm</button>
+    <div class="muted small">resy is asking for the email on your account.</div>
+  </div>
+</div>
+
+<div id="main-section" hidden>
+  <h2>add a watch</h2>
+  <div class="stack">
+    <textarea id="watch-text" placeholder='e.g. "watch I Sodi Sat Jun 14 6-9:30 for 3" — or list several at once'></textarea>
+    <button id="watch-btn">add</button>
+    <div class="muted small">auto-books by default. add "no book" anywhere to opt out.</div>
+  </div>
+
+  <h2>active watches <span id="active-count" class="muted"></span></h2>
+  <ul id="active-list"></ul>
+
+  <h2>recent activity</h2>
+  <ul id="activity-list"></ul>
+
+  <h2 class="muted">account</h2>
+  <div class="row">
+    <span class="muted small" id="account-phone"></span>
+    <button class="secondary tiny right" id="signout-btn">sign out</button>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const API_BASE = 'https://eskqbzoisyrvybxyjmln.supabase.co/functions/v1/sniper-app/api';
+
+// Key lives in URL hash (never sent to jsdelivr), or in localStorage after first paste.
+function readKeyFromHash() {
+  const h = location.hash.startsWith('#') ? location.hash.slice(1) : '';
+  const params = new URLSearchParams(h);
+  return params.get('key') || '';
+}
+let KEY = readKeyFromHash() || localStorage.getItem('sniperKey') || '';
+if (KEY) localStorage.setItem('sniperKey', KEY);
+
+const toastEl = document.getElementById('toast');
+let toastTimer;
+function toast(msg, error) {
+  toastEl.textContent = msg;
+  toastEl.classList.toggle('error', !!error);
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function() { toastEl.classList.remove('show'); }, 3500);
+}
+
+function show(id, visible) { document.getElementById(id).hidden = !visible; }
+
+async function api(path, body) {
+  const init = { method: body ? 'POST' : 'GET', headers: body ? { 'content-type': 'application/json' } : {} };
+  if (body) init.body = JSON.stringify(body);
+  const res = await fetch(API_BASE + '/' + path + '?key=' + encodeURIComponent(KEY), init);
+  const data = await res.json().catch(function() { return {}; });
+  if (!res.ok) throw new Error(data.error || ('http ' + res.status));
+  return data;
+}
+
+function fmt(d) { if (!d) return ''; return new Date(d).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }); }
+
+async function refresh() {
+  try {
+    const s = await api('state');
+    const headerEl = document.getElementById('header-status');
+    if (!s.connected) {
+      headerEl.textContent = 'not connected to resy.';
+      show('connect-section', true);
+      show('main-section', false);
+      if (s.pendingOtp) {
+        document.getElementById('phone-input').value = s.pendingOtp.phone;
+        show('connect-step-phone', false);
+        if (s.pendingOtp.needsEmail) { show('connect-step-code', false); show('connect-step-email', true); }
+        else show('connect-step-code', true);
+      }
+    } else {
+      headerEl.textContent = 'connected as ' + s.connectedPhone + ' since ' + fmt(s.connectedAt);
+      show('connect-section', false);
+      show('main-section', true);
+      document.getElementById('account-phone').textContent = s.connectedPhone || '';
+
+      const active = document.getElementById('active-list');
+      document.getElementById('active-count').textContent = s.watches.length ? '(' + s.watches.length + ')' : '';
+      if (!s.watches.length) {
+        active.innerHTML = '<li class="muted">no active watches.</li>';
+      } else {
+        active.innerHTML = s.watches.map(function(w) {
+          const dr = w.date_start === w.date_end ? w.date_start : (w.date_start + '…' + w.date_end);
+          const auto = w.auto_book ? '<span class="pill book">auto-book</span>' : '<span class="pill">ping only</span>';
+          const last = w.last_polled_at ? '<span class="muted small">polled ' + fmt(w.last_polled_at) + '</span>' : '<span class="muted small">not polled yet</span>';
+          return '<li>' +
+            '<div class="row"><strong>' + w.venue_name + '</strong> ' + auto + '<button class="secondary tiny right" data-cancel="' + w.id + '">cancel</button></div>' +
+            '<div class="small muted">' + dr + ' · ' + w.time_start.slice(0,5) + '-' + w.time_end.slice(0,5) + ' · party ' + w.party_size + '</div>' +
+            '<div>' + last + '</div>' +
+          '</li>';
+        }).join('');
+        active.querySelectorAll('[data-cancel]').forEach(function(btn) {
+          btn.addEventListener('click', async function() {
+            if (!confirm('cancel this watch?')) return;
+            await api('cancel', { id: btn.dataset.cancel });
+            toast('cancelled');
+            refresh();
+          });
+        });
+      }
+
+      const events = [];
+      for (const a of s.recentAlerts) {
+        const venue = (a.sniper_watches && a.sniper_watches.venue_name) || 'venue';
+        const label = a.outcome === 'booked' ? 'BOOKED' : a.outcome === 'book_failed' ? 'book failed' : 'slot found';
+        const pillClass = a.outcome === 'booked' ? 'pill ok' : a.outcome === 'book_failed' ? 'pill book' : 'pill';
+        const linkHtml = a.venue_url ? ' <a href="' + a.venue_url + '" target="_blank">resy →</a>' : '';
+        const reasonHtml = a.failure_reason ? '<div class="small muted">' + a.failure_reason + '</div>' : '';
+        events.push({ when: a.sent_at, html: '<li><span class="' + pillClass + '">' + label + '</span> <strong>' + venue + '</strong> <span class="muted small">— ' + a.slot_date + ' ' + a.slot_time.slice(0,5) + ' · ' + fmt(a.sent_at) + '</span>' + linkHtml + reasonHtml + '</li>' });
+      }
+      events.sort(function(x, y) { return (y.when || '').localeCompare(x.when || ''); });
+      const activity = document.getElementById('activity-list');
+      activity.innerHTML = events.length ? events.slice(0, 15).map(function(e) { return e.html; }).join('') : '<li class="muted">no activity yet. add a watch above.</li>';
+    }
+  } catch (e) {
+    if (/403|forbidden/i.test(e.message)) {
+      // Key is wrong — clear it and prompt
+      localStorage.removeItem('sniperKey');
+      KEY = '';
+      gateOnKey();
+      toast('access key was rejected. paste again.', true);
+    } else {
+      toast('error: ' + e.message, true);
+    }
+  }
+}
+
+function gateOnKey() {
+  if (!KEY) {
+    document.getElementById('header-status').textContent = '';
+    show('key-prompt', true);
+    show('connect-section', false);
+    show('main-section', false);
+    return false;
+  }
+  show('key-prompt', false);
+  return true;
+}
+
+document.getElementById('key-btn').addEventListener('click', function() {
+  const k = document.getElementById('key-input').value.trim();
+  if (!k) return;
+  KEY = k;
+  localStorage.setItem('sniperKey', k);
+  show('key-prompt', false);
+  refresh();
+});
+document.getElementById('key-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') document.getElementById('key-btn').click();
+});
+
+document.getElementById('connect-btn').addEventListener('click', async function() {
+  const phone = document.getElementById('phone-input').value.trim();
+  try { await api('connect', { phone }); toast('code sent — check resy SMS'); refresh(); }
+  catch (e) { toast(e.message, true); }
+});
+
+document.getElementById('code-btn').addEventListener('click', async function() {
+  const code = document.getElementById('code-input').value.trim();
+  try {
+    const r = await api('code', { code });
+    if (r.needsEmail) { show('connect-step-code', false); show('connect-step-email', true); toast('one more step — enter your email'); }
+    else { toast('connected'); refresh(); }
+  } catch (e) { toast(e.message, true); }
+});
+
+document.getElementById('email-btn').addEventListener('click', async function() {
+  const email = document.getElementById('email-input').value.trim();
+  try { await api('email', { email }); toast('connected'); refresh(); }
+  catch (e) { toast(e.message, true); }
+});
+
+document.getElementById('watch-btn').addEventListener('click', async function() {
+  const text = document.getElementById('watch-text').value.trim();
+  if (!text) return;
+  const btn = document.getElementById('watch-btn');
+  btn.disabled = true; btn.textContent = 'parsing…';
+  try {
+    const r = await api('watch', { text });
+    const parts = [];
+    if (r.created && r.created.length) parts.push('added ' + r.created.length);
+    if (r.failed && r.failed.length) parts.push(r.failed.length + ' failed: ' + r.failed[0]);
+    toast(parts.join(' · '));
+    if (r.created && r.created.length) document.getElementById('watch-text').value = '';
+    refresh();
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = 'add'; }
+});
+
+document.getElementById('signout-btn').addEventListener('click', async function() {
+  if (!confirm('disconnect resy?')) return;
+  await api('signout');
+  toast('signed out');
+  refresh();
+});
+
+if (gateOnKey()) { refresh(); setInterval(refresh, 30000); }
+</script>
+</body>
+</html>

@@ -12,6 +12,9 @@ const REQUIRED = [
   'ANTHROPIC_API_KEY',
   'SNIPER_ENCRYPTION_KEY',
   'SNIPER_WEBHOOK_SECRET',
+];
+
+const OPTIONAL_TWILIO = [
   'TWILIO_ACCOUNT_SID',
   'TWILIO_AUTH_TOKEN',
   'TWILIO_FROM_NUMBER',
@@ -66,19 +69,22 @@ async function checkDb(): Promise<{ ok: boolean; detail: string }> {
 }
 
 Deno.serve(async (_req) => {
-  const vars = REQUIRED.map(check);
-  const missing = vars.filter(v => !v.set).map(v => v.name);
+  const required = REQUIRED.map(check);
+  const optional = OPTIONAL_TWILIO.map(check);
+  const missingRequired = required.filter(v => !v.set).map(v => v.name);
   const dbStatus = await checkDb();
-  const ok = missing.length === 0 && dbStatus.ok && vars.every(v => !v.notes);
+  const ok = missingRequired.length === 0 && dbStatus.ok && required.every(v => !v.notes);
+  const twilioConfigured = OPTIONAL_TWILIO.every(n => Deno.env.get(n));
 
   return new Response(JSON.stringify({
     ok,
     summary: ok
-      ? '✓ all required env vars set, DB reachable. Ready to text the bot.'
-      : missing.length > 0
-        ? `✗ missing ${missing.length} env var(s): ${missing.join(', ')}`
-        : '✗ env vars set but something looks off — check notes below',
-    env: vars,
+      ? `✓ ready. web app live. ${twilioConfigured ? 'twilio sms also configured.' : 'twilio sms NOT configured (web-app-only mode).'}`
+      : missingRequired.length > 0
+        ? `✗ missing ${missingRequired.length} required env var(s): ${missingRequired.join(', ')}`
+        : '✗ required env vars set but something looks off — check notes below',
+    required,
+    optional_twilio: optional,
     db: dbStatus,
   }, null, 2), {
     status: ok ? 200 : 500,
